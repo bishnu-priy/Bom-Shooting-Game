@@ -1,0 +1,373 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Bomb Shooting Game</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            overflow: hidden;
+            background: url('blackFire2.jpg') no-repeat center center fixed;
+            background-size: cover;
+        }
+        canvas {
+            display: block;
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+        }
+        .score {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            color: white;
+            font-size: 20px;
+        }
+        .start-message {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            font-size: 30px;
+            color: white;
+            font-family: Arial, sans-serif;
+        }
+        #restartBtn {
+            display: none;
+            position: absolute;
+            top: 60%;
+            left: 50%;
+            transform: translateX(-50%);
+            padding: 10px 20px;
+            font-size: 20px;
+            background-color: green;
+            color: white;
+            border: none;
+            cursor: pointer;
+        }
+        .hearts {
+            position: absolute;
+            top: 10px;
+            left: 50%;
+            transform: translateX(-50%);
+            display: flex;
+            gap: 10px;
+        }
+        .heart {
+            font-size: 30px;
+            color: green; /* Unused heart is green */
+            position: relative;
+        }
+        .heart.used {
+            color: white; /* Used heart is white */
+        }
+        .heart .plus {
+            font-size: 20px;
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            color: white;
+            display: block;
+        }
+        .crack-symbol {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            font-size: 100px;
+            color: white;
+            display: none;
+        }
+    </style>
+</head>
+<body>
+    <div class="score">Score: 0</div>
+    <div class="start-message" id="startMessage">FIRE NOW !!!</div>
+    <div class="hearts">
+        <span class="heart" id="heart1">❤️<span class="plus">+</span></span>
+        <span class="heart" id="heart2">❤️<span class="plus">+</span></span>
+        <span class="heart" id="heart3">❤️<span class="plus">+</span></span>
+    </div>
+    <div class="crack-symbol" id="crackSymbol">💥</div>
+    <canvas id="gameCanvas"></canvas>
+    <button id="restartBtn">Restart Game</button>
+
+    <script>
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+        canvas.width = window.innerWidth;
+        canvas.height = window.innerHeight;
+
+        const playerWidth = 50;
+        const playerHeight = 30;
+        const playerY = canvas.height - 60;
+        const lines = [
+            canvas.width / 4 - playerWidth / 2,
+            canvas.width / 2 - playerWidth / 2,
+            (3 * canvas.width) / 4 - playerWidth / 2
+        ];
+
+        let playerX = lines[1]; // Start in the middle line
+        let currentLine = 1; // 0 = left, 1 = middle, 2 = right
+        let shots = [];
+        let bombs = [];
+        let explosions = [];
+        let score = 0;
+        let gameOver = false;
+        let shotInterval = 200;
+        let bombSpeed = 1.5;
+        let gameStarted = false; // Track whether the game has started
+        let paused = false; // Track if the game is paused
+        let bombIntervalId, shotIntervalId;
+        let lifeCount = 3;
+
+        class Shot {
+            constructor(x, y) {
+                this.x = x;
+                this.y = y;
+            }
+            move() {
+                this.y -= 5;
+            }
+        }
+
+        class Bomb {
+            constructor(line) {
+                this.x = line + playerWidth / 2 - 15; // Adjust for center alignment
+                this.y = -30;
+                this.radius = 15;
+                this.bulletCount = Math.floor(Math.random() * 9) + 7;
+            }
+            move() {
+                this.y += bombSpeed;
+            }
+            draw() {
+                ctx.beginPath();
+                ctx.arc(this.x + this.radius, this.y + this.radius, this.radius, 0, 2 * Math.PI);
+                ctx.fillStyle = 'red';
+                ctx.fill();
+                ctx.lineWidth = 3;
+                ctx.strokeStyle = '#660000';
+                ctx.stroke();
+                ctx.lineWidth = 1;
+                ctx.fillStyle = 'white';
+                ctx.font = '12px Arial';
+                ctx.fillText(this.bulletCount, this.x + this.radius - 5, this.y + this.radius + 5);
+            }
+        }
+
+        class Explosion {
+            constructor(x, y) {
+                this.x = x;
+                this.y = y;
+                this.frame = 0;
+                this.maxFrames = 30;
+                this.sizeMultiplier = 4; // Reduced to half the original size
+            }
+            draw() {
+                if (this.frame < this.maxFrames) {
+                    const progress = this.frame / this.maxFrames;
+
+                    ctx.beginPath();
+                    ctx.arc(this.x, this.y, (this.frame + 1) * this.sizeMultiplier, 0, 2 * Math.PI);
+                    ctx.fillStyle = `rgba(255, 0, 0, ${1 - progress})`;
+                    ctx.fill();
+                    ctx.closePath();
+
+                    ctx.beginPath();
+                    ctx.arc(this.x, this.y, this.frame * this.sizeMultiplier * 0.8, 0, 2 * Math.PI);
+                    ctx.fillStyle = `rgba(255, 140, 0, ${1 - progress})`;
+                    ctx.fill();
+                    ctx.closePath();
+
+                    ctx.beginPath();
+                    ctx.arc(this.x, this.y, this.frame * this.sizeMultiplier * 0.6, 0, 2 * Math.PI);
+                    ctx.fillStyle = `rgba(255, 255, 0, ${1 - progress})`;
+                    ctx.fill();
+                    ctx.closePath();
+
+                    this.frame++;
+                }
+            }
+        }
+
+        document.addEventListener('keydown', function (e) {
+            if (e.key === 'ArrowRight' && currentLine < 2) {
+                currentLine++;
+                playerX = lines[currentLine];
+            } else if (e.key === 'ArrowLeft' && currentLine > 0) {
+                currentLine--;
+                playerX = lines[currentLine];
+            } else if (e.key === ' ') {
+                if (!gameStarted) {
+                    gameStarted = true;
+                    document.getElementById('startMessage').style.display = 'none';
+                } else {
+                    paused = !paused;
+                    toggleGamePause();
+                }
+            }
+        });
+
+        function toggleGamePause() {
+            if (paused) {
+                clearInterval(bombIntervalId);
+                clearInterval(shotIntervalId);
+            } else {
+                startIntervals();
+            }
+        }
+
+        function startIntervals() {
+            bombIntervalId = setInterval(() => {
+                if (gameStarted && !gameOver && !paused) {
+                    let randomLine = lines[Math.floor(Math.random() * lines.length)];
+                    bombs.push(new Bomb(randomLine));
+                }
+            }, 1000);
+
+            shotIntervalId = setInterval(() => {
+                if (gameStarted && !gameOver && !paused) {
+                    shots.push(new Shot(playerX + playerWidth / 2 - 2.5, playerY));
+                }
+            }, shotInterval);
+        }
+
+        function checkCollisions() {
+            for (let i = 0; i < bombs.length; i++) {
+                if (
+                    bombs[i].x + bombs[i].radius * 2 > playerX &&
+                    bombs[i].x < playerX + playerWidth &&
+                    bombs[i].y + bombs[i].radius * 2 > playerY - playerHeight &&
+                    bombs[i].y < playerY
+                ) {
+                    handleLifeLoss();
+                    bombs.splice(i, 1);
+                    break;
+                }
+
+                if (bombs[i].y + bombs[i].radius * 2 >= canvas.height) {
+                    handleLifeLoss();
+                    bombs.splice(i, 1);
+                    break;
+                }
+
+                for (let j = 0; j < shots.length; j++) {
+                    if (
+                        bombs[i].x < shots[j].x + 5 &&
+                        bombs[i].x + bombs[i].radius * 2 > shots[j].x &&
+                        bombs[i].y < shots[j].y + 15 &&
+                        bombs[i].y + bombs[i].radius * 2 > shots[j].y
+                    ) {
+                        bombs[i].bulletCount -= 2;
+                        shots.splice(j, 1);
+                        if (bombs[i].bulletCount <= 0) {
+                            explosions.push(new Explosion(bombs[i].x + bombs[i].radius, bombs[i].y + bombs[i].radius));
+                            bombs.splice(i, 1);
+                            score++;
+                        }
+                        break;
+                    }
+                }
+            }
+        }
+
+        function handleLifeLoss() {
+            if (lifeCount > 0) {
+                lifeCount--;
+                const heartId = 'heart' + (3 - lifeCount);
+                const heart = document.getElementById(heartId);
+                heart.classList.add('used');
+                heart.querySelector('.plus').style.display = 'none'; // Hide the "+" symbol when heart is used
+                document.getElementById('crackSymbol').style.display = 'block'; // Show cracking symbol
+
+                setTimeout(() => {
+                    document.getElementById('crackSymbol').style.display = 'none'; // Hide cracking symbol after a moment
+                }, 500);
+
+                if (lifeCount === 0) {
+                    // Don't change the color of the last heart to gray
+                    gameOver = true;
+                }
+            }
+        }
+
+        function update() {
+            if (gameOver) {
+                ctx.fillStyle = 'white';
+                ctx.font = '30px Arial';
+                ctx.fillText('Game Over', canvas.width / 2 - 80, canvas.height / 2);
+                ctx.fillText('Final Score: ' + score, canvas.width / 2 - 100, canvas.height / 2 + 40);
+
+                // Show the restart button after game over
+                document.getElementById('restartBtn').style.display = 'block';
+                return;
+            }
+
+            if (paused) return; // Pause the update logic if the game is paused
+
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            // Draw player rocket
+            ctx.fillStyle = 'red';
+            ctx.beginPath();
+            ctx.moveTo(playerX + 25, playerY - 60); // Rocket nose
+            ctx.lineTo(playerX + 50, playerY); // Right bottom
+            ctx.lineTo(playerX, playerY); // Left bottom
+            ctx.closePath();
+            ctx.fill();
+
+            ctx.fillStyle = 'gray';
+            ctx.fillRect(playerX + 15, playerY, 20, 30); // Rocket body
+
+            ctx.fillStyle = 'orange';
+            ctx.fillRect(playerX + 10, playerY + 30, 10, 20); // Left flame
+            ctx.fillRect(playerX + 30, playerY + 30, 10, 20); // Right flame
+
+            // Draw shots
+            ctx.fillStyle = 'yellow';
+            for (let i = 0; i < shots.length; i++) {
+                shots[i].move();
+                ctx.fillRect(shots[i].x, shots[i].y, 5, 15);
+            }
+
+            // Draw bombs
+            for (let i = 0; i < bombs.length; i++) {
+                bombs[i].move();
+                bombs[i].draw();
+            }
+
+            // Draw explosions
+            for (let i = 0; i < explosions.length; i++) {
+                explosions[i].draw();
+                if (explosions[i].frame >= explosions[i].maxFrames) {
+                    explosions.splice(i, 1);
+                    i--;
+                }
+            }
+
+            checkCollisions();
+            document.querySelector('.score').textContent = 'Score: ' + score;
+        }
+
+        startIntervals(); // Start the bomb and shot intervals initially
+
+        function gameLoop() {
+            update();
+            requestAnimationFrame(gameLoop);
+        }
+
+        gameLoop();
+
+        // Add event listener for restart button
+        document.getElementById('restartBtn').addEventListener('click', function() {
+            location.reload(); // Reload the page
+        });
+    </script>
+</body>
+</html>
